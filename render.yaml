@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: contact-form-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GMAIL_USER
+        value: nirajsingh9570460932@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        value: ykisziflgfwojohl
+      - key: ALLOWED_ORIGINS
+        value: https://your-frontend-domain.vercel.app,http://localhost:3000,http://localhost:5173

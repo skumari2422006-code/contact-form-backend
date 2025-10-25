@@ -1,13 +1,9 @@
 const express = require('express');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
-const dotenv = require('dotenv');
-const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
-const { body, validationResult } = require('express-validator');
-
-// Load environment variables
-dotenv.config();
+const rateLimit = require('express-rate-limit');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,242 +15,231 @@ app.use(helmet({
 
 // CORS configuration
 app.use(cors({
-  origin: [process.env.FRONTEND_URL || 'http://localhost:3000', 'https://nirajkrsingh.vercel.app'],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'http://localhost:5173'],
+  methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs
+  max: 5, // Limit each IP to 5 requests per windowMs
   message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes.'
+    error: 'Too many contact form submissions. Please try again after 15 minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-app.use(limiter);
-
-// Body parsing middleware
+app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// Create email transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
-
-// Email templates
-const getEmailTemplates = (formData) => {
-  // Admin notification email
-  const adminEmail = {
-    subject: `New Contact Form Submission: ${formData.subject}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <h2 style="color: #333; margin-bottom: 20px;">New Contact Form Submission</h2>
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-          <p style="margin: 0; color: #666; font-size: 14px;">You've received a new message from your portfolio website.</p>
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <strong style="color: #333;">Name:</strong> ${formData.name}
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <strong style="color: #333;">Email:</strong> <a href="mailto:${formData.email}" style="color: #007bff;">${formData.email}</a>
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <strong style="color: #333;">Subject:</strong> ${formData.subject}
-        </div>
-        
-        <div style="margin-bottom: 20px;">
-          <strong style="color: #333;">Message:</strong>
-          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 10px; white-space: pre-wrap;">${formData.message}</div>
-        </div>
-        
-        <div style="border-top: 1px solid #e0e0e0; padding-top: 15px; font-size: 12px; color: #666;">
-          <p style="margin: 0;">This message was sent from your portfolio contact form.</p>
-          <p style="margin: 0;">Sent on: ${new Date().toLocaleString()}</p>
-        </div>
-      </div>
-    `
-  };
-
-  // User thank you email
-  const userEmail = {
-    subject: `Thank you for contacting me - ${formData.subject}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #333; margin-bottom: 10px;">Thank You for Contacting Me!</h1>
-          <p style="color: #666; font-size: 16px;">I've received your message and will get back to you soon.</p>
-        </div>
-        
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-          <h3 style="color: #333; margin-bottom: 15px;">Your Message Details:</h3>
-          <div style="margin-bottom: 10px;">
-            <strong style="color: #333;">Name:</strong> ${formData.name}
-          </div>
-          <div style="margin-bottom: 10px;">
-            <strong style="color: #333;">Email:</strong> ${formData.email}
-          </div>
-          <div style="margin-bottom: 15px;">
-            <strong style="color: #333;">Subject:</strong> ${formData.subject}
-          </div>
-          <div>
-            <strong style="color: #333;">Message:</strong>
-            <div style="background-color: white; padding: 15px; border-radius: 5px; margin-top: 10px; white-space: pre-wrap;">${formData.message}</div>
-          </div>
-        </div>
-        
-        <div style="text-align: center; margin-bottom: 20px;">
-          <p style="color: #666; margin-bottom: 10px;">You can expect a response within 24-48 hours.</p>
-          <div style="background-color: #007bff; color: white; padding: 10px 20px; border-radius: 5px; display: inline-block;">
-            Reference ID: ${Date.now()}
-          </div>
-        </div>
-        
-        <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; text-align: center;">
-          <h4 style="color: #333; margin-bottom: 10px;">Connect with me:</h4>
-          <div>
-            <a href="https://nirajkrsingh.vercel.app" style="color: #007bff; text-decoration: none; margin: 0 10px;">Portfolio</a>
-            <a href="https://www.linkedin.com/in/niraj-kumar-singh-116437257/" style="color: #007bff; text-decoration: none; margin: 0 10px;">LinkedIn</a>
-            <a href="https://github.com/nirajkumarsingh51" style="color: #007bff; text-decoration: none; margin: 0 10px;">GitHub</a>
-          </div>
-          <p style="color: #666; font-size: 12px; margin-top: 15px;">Sent on: ${new Date().toLocaleString()}</p>
-        </div>
-      </div>
-    `
-  };
-
-  return { adminEmail, userEmail };
+// Email transporter configuration
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
 };
 
-// Validation middleware
-const validateContactForm = [
-  body('name')
-    .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Name must be between 2 and 100 characters')
-    .matches(/^[a-zA-Z\s\-\.]+$/)
-    .withMessage('Name can only contain letters, spaces, hyphens, and dots'),
-  
-  body('email')
-    .trim()
-    .isEmail()
-    .withMessage('Please provide a valid email address')
-    .normalizeEmail(),
-  
-  body('subject')
-    .trim()
-    .isLength({ min: 5, max: 200 })
-    .withMessage('Subject must be between 5 and 200 characters'),
-  
-  body('message')
-    .trim()
-    .isLength({ min: 10, max: 5000 })
-    .withMessage('Message must be between 10 and 5000 characters'),
-];
+// Validate email configuration
+const validateEmailConfig = () => {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.error('Email configuration missing. Please check environment variables.');
+    return false;
+  }
+  return true;
+};
 
-// Contact form endpoint
-app.post('/api/contact', validateContactForm, async (req, res) => {
+// Contact form submission endpoint
+app.post('/api/contact', async (req, res) => {
   try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
+    const { name, email, subject, message } = req.body;
+
+    // Input validation
+    if (!name || !email || !subject || !message) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array().map(error => error.msg)
+        message: 'All fields are required'
       });
     }
 
-    const { name, email, subject, message } = req.body;
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email address'
+      });
+    }
 
-    // Get email templates
-    const { adminEmail, userEmail } = getEmailTemplates({ name, email, subject, message });
+    // Check email configuration
+    if (!validateEmailConfig()) {
+      return res.status(500).json({
+        success: false,
+        message: 'Email service configuration error'
+      });
+    }
 
-    // Send email to admin
-    const adminMailOptions = {
-      from: process.env.EMAIL_FROM,
-      to: process.env.EMAIL_TO,
-      ...adminEmail
+    const transporter = createTransporter();
+
+    // 1. Email to admin (nirajsingh9570460932@gmail.com)
+    const adminEmailContent = {
+      from: process.env.GMAIL_USER,
+      to: 'nirajsingh9570460932@gmail.com',
+      subject: `New Contact Form Submission: ${subject}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #333; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;">
+            New Contact Form Submission
+          </h2>
+          <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Subject:</strong> ${subject}</p>
+          </div>
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px;">
+            <h3 style="color: #4f46e5; margin-top: 0;">Message:</h3>
+            <p style="white-space: pre-wrap; line-height: 1.6;">${message}</p>
+          </div>
+          <div style="margin-top: 20px; padding: 15px; background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+            <p style="margin: 0; font-size: 12px; color: #92400e;">
+              This message was sent from your portfolio contact form on ${new Date().toLocaleString()}
+            </p>
+          </div>
+        </div>
+      `,
     };
 
-    // Send thank you email to user
-    const userMailOptions = {
-      from: process.env.EMAIL_FROM,
+    // 2. Thank you email to the person who submitted the form
+    const thankYouEmailContent = {
+      from: process.env.GMAIL_USER,
       to: email,
-      replyTo: process.env.EMAIL_TO,
-      ...userEmail
+      subject: 'Thank you for contacting me - Niraj Kumar Singh',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #4f46e5; margin: 0;">Thank You!</h1>
+            <p style="color: #6b7280; margin: 5px 0;">For reaching out to me</p>
+          </div>
+          
+          <div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p>Dear ${name},</p>
+            <p style="line-height: 1.6;">
+              Thank you for taking the time to contact me through my portfolio. I have received your message and will get back to you as soon as possible.
+            </p>
+            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0;">
+              <h4 style="color: #4f46e5; margin-top: 0;">Your Message Summary:</h4>
+              <p><strong>Subject:</strong> ${subject}</p>
+              <p style="white-space: pre-wrap; line-height: 1.6;"><strong>Message:</strong> ${message}</p>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <p style="color: #6b7280;">I'll respond to you at: <strong>${email}</strong></p>
+          </div>
+
+          <div style="background-color: #1f2937; color: white; padding: 20px; border-radius: 8px; margin-top: 30px;">
+            <h3 style="color: #4f46e5; margin-top: 0;">About Me</h3>
+            <p style="line-height: 1.6;">
+              I'm a Full-Stack Developer specializing in modern web technologies. 
+              I'm passionate about creating scalable applications and solving complex problems.
+            </p>
+            <div style="margin-top: 15px;">
+              <p>Feel free to connect with me:</p>
+              <ul style="list-style: none; padding: 0;">
+                <li>📧 Email: nirajsingh9570460932@gmail.com</li>
+                <li>💼 LinkedIn: <a href="https://www.linkedin.com/in/niraj-kumar-singh-116437257/" style="color: #4f46e5;">Connect with me</a></li>
+                <li>🐙 GitHub: <a href="https://github.com/nirajkumarsingh51" style="color: #4f46e5;">Check my work</a></li>
+              </ul>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+              This is an automated message. Please do not reply to this email.
+            </p>
+            <p style="color: #9ca3af; font-size: 12px; margin: 5px 0;">
+              Sent on ${new Date().toLocaleString()}
+            </p>
+          </div>
+        </div>
+      `,
     };
 
     // Send both emails
-    await Promise.all([
-      transporter.sendMail(adminMailOptions),
-      transporter.sendMail(userMailOptions)
+    const [adminEmailResult, thankYouEmailResult] = await Promise.allSettled([
+      transporter.sendMail(adminEmailContent),
+      transporter.sendMail(thankYouEmailContent),
     ]);
 
-    // Success response
-    res.json({
+    // Check if both emails were sent successfully
+    if (adminEmailResult.status === 'rejected' || thankYouEmailResult.status === 'rejected') {
+      console.error('Email sending error:', {
+        adminEmail: adminEmailResult.status === 'rejected' ? adminEmailResult.reason.message : 'Success',
+        thankYouEmail: thankYouEmailResult.status === 'rejected' ? thankYouEmailResult.reason.message : 'Success'
+      });
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send email. Please try again later.'
+      });
+    }
+
+    res.status(200).json({
       success: true,
-      message: 'Message sent successfully! Check your email for confirmation.'
+      message: 'Your message has been sent successfully! I will get back to you soon.'
     });
 
   } catch (error) {
     console.error('Contact form error:', error);
-    
-    // Don't expose detailed error information to client
     res.status(500).json({
       success: false,
-      message: 'Failed to send message. Please try again later.'
+      message: 'Internal server error. Please try again later.'
     });
   }
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV 
+    emailConfigured: validateEmailConfig()
   });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Contact Form Backend API',
     version: '1.0.0',
-    status: 'Running'
+    endpoints: {
+      contact: 'POST /api/contact',
+      health: 'GET /api/health'
+    }
   });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Unhandled error:', err);
   res.status(500).json({
     success: false,
-    message: 'Something went wrong on the server.'
+    message: 'Internal server error'
   });
 });
 
 // 404 handler
-app.use((req, res) => {
+app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     message: 'Endpoint not found'
@@ -263,17 +248,9 @@ app.use((req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV}`);
-  
-  // Test email configuration on startup
-  transporter.verify((error, success) => {
-    if (error) {
-      console.error('Email configuration error:', error);
-    } else {
-      console.log('Email server is ready to send messages');
-    }
-  });
+  console.log(`🚀 Contact Form Backend Server running on port ${PORT}`);
+  console.log(`📧 Email service: ${validateEmailConfig() ? 'Configured' : 'Not configured'}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
 });
 
 module.exports = app;
